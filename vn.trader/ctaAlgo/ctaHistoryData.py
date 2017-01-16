@@ -220,10 +220,10 @@ class HistoryDataEngine(object):
                     bar.openInterest = 0
                 except KeyError:
                     print d
-                
+
+
                 flt = {'datetime': bar.datetime}
-                self.dbClient[MINUTE_DB_NAME][symbol].update_one(flt, {'$set':bar.__dict__}, upsert=True)            
-            
+                self.dbClient[MINUTE_DB_NAME][symbol].update_one(flt, {'$set':bar.__dict__}, upsert=True)
             print u'%s下载完成' %symbol
         else:
             print u'找不到合约%s' %symbol   
@@ -349,6 +349,69 @@ def loadMcCsv(fileName, dbName, symbol):
     
     print u'插入完毕，耗时：%s' % (time()-start)
 
+#----------------------------------------------------------------------
+def loadMcCsvTick(fileName, dbName, symbol):
+    """将Multicharts导出的csv格式的历史数据插入到Mongo数据库中"""
+    import csv
+
+    start = time()
+    print u'开始读取CSV文件%s中的数据插入到%s的%s中' %(fileName, dbName, symbol)
+    """
+    csv_file = open(fileName, 'r')
+    reader = csv.DictReader(csv_file)
+
+    for d in reader:
+        print float(d['\xc9\xea\xc2\xf2\xbc\xdb\xd2\xbb'])
+    csv_file.close()
+    """
+
+    # 锁定集合，并创建索引
+    host, port = loadMongoSetting()
+
+    client = pymongo.MongoClient(host, port)
+    collection = client[dbName][symbol]
+    collection.ensure_index([('datetime', pymongo.ASCENDING)], unique=True)
+
+    csv_file = open(fileName, 'r')
+    reader = csv.DictReader(csv_file)
+    for d in reader:
+        tick = CtaTickData()
+        tick.vtSymbol = symbol
+        tick.symbol = symbol
+        tick.askPrice1 = float(d['\xc9\xea\xc2\xf2\xbc\xdb\xd2\xbb']) #申买价一
+        tick.askVolume1 = int(d['\xc9\xea\xc2\xf2\xc1\xbf\xd2\xbb']) #申买量一
+        tick.bidPrice1 = float(d['\xc9\xea\xc2\xf4\xbc\xdb\xd2\xbb']) #申卖价一
+        tick.bidVolume1 = int(d['\xc9\xea\xc2\xf4\xc1\xbf\xd2\xbb']) #申卖量一
+        tick.lastPrice = float(d['\xd7\xee\xd0\xc2\xbc\xdb']) #最新价
+        tick.upperLimit = float(d['\xd5\xc7\xcd\xa3\xb0\xe5\xbc\xdb']) #涨停板价
+        tick.lowerLimit = float(d['\xb5\xf8\xcd\xa3\xb0\xe5\xbc\xdb']) #跌停板价
+        tick.volume = int(float(d['\xb3\xd6\xb2\xd6\xc1\xbf'])) #持仓量
+        tick.high = float(d['\xd7\xee\xb8\xdf\xbc\xdb']) # 最高价
+        tick.low = float(d['\xd7\xee\xb5\xcd\xbc\xdb']) # 最低价
+
+        tick.date = d['\xbd\xbb\xd2\xd7\xc8\xd5'] #交易日
+        #tick.date = datetime.strptime(d['date'], '%Y%m%d').strftime('%Y%m%d')
+        if d['\xd7\xee\xba\xf3\xd0\xde\xb8\xc4\xba\xc1\xc3\xeb']=='500':                  #最后修改毫秒
+            tick.time = d['\xd7\xee\xba\xf3\xd0\xde\xb8\xc4\xca\xb1\xbc\xe4'] + '.5'          #最后修改时间
+        else:
+            tick.time = d['\xd7\xee\xba\xf3\xd0\xde\xb8\xc4\xca\xb1\xbc\xe4'] + '.0'          #最后修改时间
+        tick.datetime = datetime.strptime(tick.date + ' ' + tick.time, '%Y%m%d %H:%M:%S.%f')
+
+        #21点以前的算到前一天
+        if  (datetime.strptime('20010101 20:59:59.0', '%Y%m%d %H:%M:%S.%f') < datetime.strptime('20010101' + ' ' + tick.time, '%Y%m%d %H:%M:%S.%f') < datetime.strptime('20010101 23:30:01.0', '%Y%m%d %H:%M:%S.%f')):
+            tick.datetime = tick.datetime + timedelta(days = -1)
+            flt = {'datetime': tick.datetime}
+            collection.update_one(flt, {'$set':tick.__dict__}, upsert=True)
+        elif (datetime.strptime('20010101 8:59:59.0', '%Y%m%d %H:%M:%S.%f') < datetime.strptime('20010101' + ' ' + tick.time, '%Y%m%d %H:%M:%S.%f') < datetime.strptime('20010101 15:00:01.0', '%Y%m%d %H:%M:%S.%f')):
+            flt = {'datetime': tick.datetime}
+            collection.update_one(flt, {'$set':tick.__dict__}, upsert=True)
+        else:
+            #把不在开盘时间内的去掉
+            print u'抛弃数据：%s ' %tick.time
+    csv_file.close()
+
+    print u'插入完毕，耗时：%s' % (time()-start)
+
 
 if __name__ == '__main__':
     ## 简单的测试脚本可以写在这里
@@ -359,3 +422,12 @@ if __name__ == '__main__':
     
     # 这里将项目中包含的股指日内分钟线csv导入MongoDB，作者电脑耗时大约3分钟
     loadMcCsv('IF0000_1min.csv', MINUTE_DB_NAME, 'IF0000')
+
+
+    # load ticker into db
+    #symbol=  "hc1701"
+    #loadMcCsvTick("hc0220160810.csv", TICK_DB_NAME, symbol)
+
+    #symbol=  "rb1701"
+    #loadMcCsvTick("rb0220160810.csv", TICK_DB_NAME, symbol)
+

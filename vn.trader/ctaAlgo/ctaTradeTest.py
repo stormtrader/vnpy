@@ -13,32 +13,44 @@
 
 
 from ctaBase import *
-from ctaTemplate import CtaTemplate
+from ctaTemplate2 import CtaTemplate
 
+
+import talib as ta
+import numpy as np
+import datetime
 
 ########################################################################
-class DoubleEmaDemo(CtaTemplate):
-    """双指数均线策略Demo"""
-    className = 'DoubleEmaDemo'
-    author = u'用Python的交易员'
-    
-    # 策略参数
-    fastK = 0.9     # 快速EMA参数
-    slowK = 0.1     # 慢速EMA参数
-    initDays = 10   # 初始化数据所用的天数
-    
-    # 策略变量
-    bar = None
-    barMinute = EMPTY_STRING
-    
-    fastMa = []             # 快速EMA均线数组
-    fastMa0 = EMPTY_FLOAT   # 当前最新的快速EMA
-    fastMa1 = EMPTY_FLOAT   # 上一根的快速EMA
+class tradeTest(CtaTemplate):
+    """策略"""
+    className = 'tradeTest'
+    author = u'hw'
 
-    slowMa = []             # 与上面相同
-    slowMa0 = EMPTY_FLOAT
-    slowMa1 = EMPTY_FLOAT
+
+    # 策略参数
+    initDays = 0   # 初始化数据所用的天数
+
+
+    # 策略变量
+    bar = {}
+    closelist={}
+    barMinute = {}
+    lasttick={}
+
+    bartime={}
+    signal={}
+
+    longsymbol=EMPTY_STRING
+    shortsymbol=EMPTY_STRING
+    poslimit=1
+    posstate={}
+    postoday={}         #今日持仓
+    poslastday={}       #昨日持仓
+    tradestate={}       #交易状态
+    tradeid=EMPTY_STRING
+    cdnum=0
     
+
     # 参数列表，保存了参数的名称
     paramList = ['name',
                  'className',
@@ -51,60 +63,77 @@ class DoubleEmaDemo(CtaTemplate):
     varList = ['inited',
                'trading',
                'pos',
-               'fastMa0',
-               'fastMa1',
-               'slowMa0',
-               'slowMa1']  
+               'poslimit',
+               'posstate',
+               'postoday',
+               'poslastday']
 
     #----------------------------------------------------------------------
     def __init__(self, ctaEngine, setting):
         """Constructor"""
-        super(DoubleEmaDemo, self).__init__(ctaEngine, setting)
-        
-        # 注意策略类中的可变对象属性（通常是list和dict等），在策略初始化时需要重新创建，
-        # 否则会出现多个策略实例之间数据共享的情况，有可能导致潜在的策略逻辑错误风险，
-        # 策略类中的这些可变对象属性可以选择不写，全都放在__init__下面，写主要是为了阅读
-        # 策略时方便（更多是个编程习惯的选择）
-        self.fastMa = []
-        self.slowMa = []
+        super(tradeTest, self).__init__(ctaEngine, setting)
+        if setting :
+            self.longsymbol=setting['longSymbol']
+            self.shortsymbol=setting['shortSymbol']
+        for vts in self.vtSymbol :
+            self.tradestate[vts]=0
+            self.postoday[vts]=0
+            self.poslastday[vts]=0
+            self.posstate[vts]=0
+
+        self.lastOrder = None
         
     #----------------------------------------------------------------------
     def onInit(self):
         """初始化策略（必须由用户继承实现）"""
-        self.writeCtaLog(u'双EMA演示策略初始化')
-        initData = []
+        if self.initDays==0:
+            return
+        self.writeCtaLog(u'策略初始化')
         for vtsymbol in self.vtSymbol:
-            initData = self.loadBar(self.initDays, vtsymbol)
+            initData = self.loadTick(self.initDays,vtsymbol)
             for tick in initData:
                 self.onTick(tick)
-
-        #run bars to init
-        for bar in initData:
-            self.onBar(bar)
         
         self.putEvent()
         
     #----------------------------------------------------------------------
     def onStart(self):
         """启动策略（必须由用户继承实现）"""
-        self.writeCtaLog(u'双EMA演示策略启动')
+        self.writeCtaLog(u'策略启动')
         self.putEvent()
     
     #----------------------------------------------------------------------
     def onStop(self):
         """停止策略（必须由用户继承实现）"""
-        self.writeCtaLog(u'双EMA演示策略停止')
+        self.writeCtaLog(u'macdpbx策略停止')
         self.putEvent()
-        
+    #----------------------------------------------------------------------
+    def onOrder(self, order):
+        """收到委托变化推送（必须由用户继承实现）"""
+        self.lastOrder=order
+
+
     #----------------------------------------------------------------------
     def onTick(self, tick):
         """收到行情TICK推送（必须由用户继承实现）"""
         # 计算K线
-        tickMinute = tick.datetime.minute
-        
-        if tickMinute != self.barMinute:    
-            if self.bar:
-                self.onBar(self.bar)
+
+        tickMinute = tick.datetime.minute   #by hw
+
+        if tick.vtSymbol in self.barMinute.keys():  #by hw
+            barMinute=  self.barMinute[tick.vtSymbol]
+        else:
+            barMinute=EMPTY_STRING
+        self.lasttick[tick.vtSymbol]=tick
+        dt=datetime.datetime.strftime(tick.datetime, '%Y-%m-%d %H:%M:%S')
+        #if tick.askPrice1 - tick.bidPrice1 >1:
+        #    print dt,tick.vtSymbol,tick.lastPrice,tick.bidPrice1,tick.askPrice1
+        #撤单判断与执行,待修改
+
+
+        if tickMinute != barMinute:
+            if tick.vtSymbol in self.bar.keys():      #by hw
+                self.onBar(self.bar[tick.vtSymbol])    #by hw
             
             bar = CtaBarData()              
             bar.vtSymbol = tick.vtSymbol
@@ -124,11 +153,11 @@ class DoubleEmaDemo(CtaTemplate):
             #bar.volume = tick.volume
             #bar.openInterest = tick.openInterest
             
-            self.bar = bar                  # 这种写法为了减少一层访问，加快速度
-            self.barMinute = tickMinute     # 更新当前的分钟
-            
+            self.bar[tick.vtSymbol] = bar                  # 这种写法为了减少一层访问，加快速度 by hw
+            self.barMinute[tick.vtSymbol] = tickMinute     # 更新当前的分钟 by hw
+            self.bartime[tick.vtSymbol] = tick.datetime
         else:                               # 否则继续累加新的K线
-            bar = self.bar                  # 写法同样为了加快速度
+            bar = self.bar[tick.vtSymbol]                  # 写法同样为了加快速度
             
             bar.high = max(bar.high, tick.lastPrice)
             bar.low = min(bar.low, tick.lastPrice)
@@ -137,48 +166,68 @@ class DoubleEmaDemo(CtaTemplate):
     #----------------------------------------------------------------------
     def onBar(self, bar):
         """收到Bar推送（必须由用户继承实现）"""
-        # 计算快慢均线
-        if not self.fastMa0:        
-            self.fastMa0 = bar.close
-            self.fastMa.append(self.fastMa0)
+
+        #计算基础变量macd，pbx .by hw
+        vtsymbol=bar.vtSymbol
+        if vtsymbol in self.closelist.keys():
+            l=self.closelist[vtsymbol]
         else:
-            self.fastMa1 = self.fastMa0
-            self.fastMa0 = bar.close * self.fastK + self.fastMa0 * (1 - self.fastK)
-            self.fastMa.append(self.fastMa0)
-            
-        if not self.slowMa0:
-            self.slowMa0 = bar.close
-            self.slowMa.append(self.slowMa0)
-        else:
-            self.slowMa1 = self.slowMa0
-            self.slowMa0 = bar.close * self.slowK + self.slowMa0 * (1 - self.slowK)
-            self.slowMa.append(self.slowMa0)
-            
-        # 判断买卖
-        crossOver = self.fastMa0>self.slowMa0 and self.fastMa1<self.slowMa1     # 金叉上穿
-        crossBelow = self.fastMa0<self.slowMa0 and self.fastMa1>self.slowMa1    # 死叉下穿
-        
+            l=[]
+            self.closelist[vtsymbol]=l
+
+        l.append(bar.close)
+
+
+        self.writeCtaLog(u'symbol:%s' %bar.vtSymbol)
+        #策略信号
+        longsignal=False
+        shortsignal=False
+        sellsignal=False
+        coversignal=False
+
+        for vts in self.vtSymbol :
+            print 'signal:',vts,self.vtSymbol,self.bar[vts].datetime.hour,self.longsymbol,self.shortsymbol, self.postoday[vts], self.bar[vts].datetime.minute
+            if self.postoday[vts]== 0 and cmp(vts,self.longsymbol)   and self.bar[vts].datetime.hour >=14 and self.bar[vts].datetime.minute <50 :
+                longsignal=True
+                #print longsignal
+            if self.postoday[vts]== 0 and vts==self.shortsymbol and self.bar[vts].datetime.hour >=14 and self.bar[vts].datetime.minute <50:
+                shortsignal=True
+
+            if self.postoday[vts]== 1 and vts==self.longsymbol and self.bar[vts].datetime.hour >=14 and self.bar[vts].datetime.minute >50 :
+                sellsignal=True
+
+            if self.postoday[vts]== -1 and vts==self.shortsymbol and self.bar[vts].datetime.hour >=14 and self.bar[vts].datetime.minute >50 :
+                coversignal=True
+
         # 金叉和死叉的条件是互斥
         # 所有的委托均以K线收盘价委托（这里有一个实盘中无法成交的风险，考虑添加对模拟市价单类型的支持）
-        if crossOver:
-            # 如果金叉时手头没有持仓，则直接做多
-            if self.pos == 0:
-                self.buy(bar.close, 1, bar.vtSymbol)
-            # 如果有空头持仓，则先平空，再做多
-            elif self.pos < 0:
-                self.cover(bar.close, 1, bar.vtSymbol)
-                self.buy(bar.close, 1, bar.vtSymbol)
-        # 死叉和金叉相反
-        elif crossBelow:
-            if self.pos == 0:
-                self.short(bar.close, 1, bar.vtSymbol)
-            elif self.pos > 0:
-                self.sell(bar.close, 1, bar.vtSymbol)
-                self.short(bar.close, 1, bar.vtSymbol)
+        print longsignal,shortsignal,self.postoday[self.longsymbol],self.postoday[self.shortsymbol],self.tradestate[self.longsymbol],self.tradestate[self.shortsymbol]
+        if sellsignal and self.postoday[self.longsymbol]==1 and self.tradestate[self.longsymbol]<> -1 :
+
+            self.tradeid=self.sell(self.bar[self.longsymbol].close, 1,self.longsymbol)
+            self.tradestate[self.longsymbol]=-1
+            print 'trade 1'
+        if coversignal and self.postoday[self.shortsymbol]==-1 and self.tradestate[self.shortsymbol]<> 1  :
+
+            self.tradeid=self.cover(self.bar[self.shortsymbol].close, 1,self.shortsymbol)
+            self.tradestate[self.shortsymbol]=1
+            print 'trade 2'
+        if longsignal and self.tradestate[self.longsymbol]<>1 :
+
+            self.tradeid=self.buy(self.bar[self.longsymbol].close, 1,self.longsymbol)
+            self.tradestate[self.longsymbol]=1
+            print 'trade 3'
+        if shortsignal and self.tradestate[self.shortsymbol]<>-1   :
+
+            self.tradeid=self.short(self.bar[self.shortsymbol].close, 1,self.shortsymbol)
+            self.tradestate[self.shortsymbol]=-1
+            print 'trade 4'
+
+
                 
         # 发出状态更新事件
         self.putEvent()
-        
+
     #----------------------------------------------------------------------
     def onOrder(self, order):
         """收到委托变化推送（必须由用户继承实现）"""
@@ -189,8 +238,10 @@ class DoubleEmaDemo(CtaTemplate):
     def onTrade(self, trade):
         """收到成交推送（必须由用户继承实现）"""
         # 对于无需做细粒度委托控制的策略，可以忽略onOrder
-        pass
-    
+
+        self.postoday[trade.vtSymbol]=self.postoday[trade.vtSymbol]+self.tradestate[trade.vtSymbol]
+        self.tradestate[trade.vtSymbol]=0
+        print 'trade',trade.vtSymbol,self.postoday[trade.vtSymbol],self.tradestate[trade.vtSymbol]
     
 ########################################################################################
 class OrderManagementDemo(CtaTemplate):

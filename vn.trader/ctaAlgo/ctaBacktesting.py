@@ -18,7 +18,7 @@ from ctaSetting import *
 from vtConstant import *
 from vtGateway import VtOrderData, VtTradeData
 from vtFunction import loadMongoSetting
-
+from vtEngine import MainEngine
 
 ########################################################################
 class BacktestingEngine(object):
@@ -349,10 +349,10 @@ class BacktestingEngine(object):
                 # 3. 则在实际中的成交价会是100而不是105，因为委托发出时市场的最优价格是100
                 if buyCross:
                     trade.price = min(order.price, buyBestCrossPrice)
-                    self.strategy.pos += order.totalVolume
+                    self.strategy.pos[order.vtSymbol] += order.totalVolume
                 else:
                     trade.price = max(order.price, sellBestCrossPrice)
-                    self.strategy.pos -= order.totalVolume
+                    self.strategy.pos[order.vtSymbol] -= order.totalVolume
                 
                 trade.volume = order.totalVolume
                 trade.tradeTime = str(self.dt)
@@ -461,9 +461,8 @@ class BacktestingEngine(object):
         """记录日志"""
         log = str(self.dt) + ' ' + content 
         self.logList.append(log)
-
         logging.info("content=%s", content)
-        
+
     #----------------------------------------------------------------------
     def output(self, content):
         """输出内容"""

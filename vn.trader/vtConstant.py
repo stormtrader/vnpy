@@ -76,3 +76,7 @@ CURRENCY_USD = 'USD'            # 美元
 CURRENCY_CNY = 'CNY'            # 人民币
 CURRENCY_UNKNOWN = 'UNKNOWN'    # 未知货币
 CURRENCY_NONE = ''              # 空货币
+
+
+
+
