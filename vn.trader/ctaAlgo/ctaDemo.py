@@ -72,8 +72,13 @@ class DoubleEmaDemo(CtaTemplate):
     def onInit(self):
         """初始化策略（必须由用户继承实现）"""
         self.writeCtaLog(u'双EMA演示策略初始化')
-        
-        initData = self.loadBar(self.initDays)
+        initData = []
+        for vtsymbol in self.vtSymbol:
+            initData = self.loadBar(self.initDays, vtsymbol)
+            for tick in initData:
+                self.onTick(tick)
+
+        #run bars to init
         for bar in initData:
             self.onBar(bar)
         
@@ -158,18 +163,18 @@ class DoubleEmaDemo(CtaTemplate):
         if crossOver:
             # 如果金叉时手头没有持仓，则直接做多
             if self.pos == 0:
-                self.buy(bar.close, 1)
+                self.buy(bar.close, 1, bar.vtSymbol)
             # 如果有空头持仓，则先平空，再做多
             elif self.pos < 0:
-                self.cover(bar.close, 1)
-                self.buy(bar.close, 1)
+                self.cover(bar.close, 1, bar.vtSymbol)
+                self.buy(bar.close, 1, bar.vtSymbol)
         # 死叉和金叉相反
         elif crossBelow:
             if self.pos == 0:
-                self.short(bar.close, 1)
+                self.short(bar.close, 1, bar.vtSymbol)
             elif self.pos > 0:
-                self.sell(bar.close, 1)
-                self.short(bar.close, 1)
+                self.sell(bar.close, 1, bar.vtSymbol)
+                self.short(bar.close, 1, bar.vtSymbol)
                 
         # 发出状态更新事件
         self.putEvent()

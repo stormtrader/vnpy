@@ -220,10 +220,10 @@ class HistoryDataEngine(object):
                     bar.openInterest = 0
                 except KeyError:
                     print d
-                
+
+
                 flt = {'datetime': bar.datetime}
-                self.dbClient[MINUTE_DB_NAME][symbol].update_one(flt, {'$set':bar.__dict__}, upsert=True)            
-            
+                self.dbClient[MINUTE_DB_NAME][symbol].update_one(flt, {'$set':bar.__dict__}, upsert=True)
             print u'%s下载完成' %symbol
         else:
             print u'找不到合约%s' %symbol   

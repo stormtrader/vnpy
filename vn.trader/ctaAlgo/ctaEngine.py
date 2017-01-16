@@ -14,6 +14,7 @@
    感到功能不足的用户（即希望更高频的交易），交易策略不应该出现4中所述的情况
 6. 对于想要实现4中所述情况的用户，需要实现一个策略信号引擎和交易委托引擎分开
    的定制化统结构（没错，得自己写）
+为适应策略中可以使用多个合约数据进行修改，如支持套利操作
 '''
 
 import json
@@ -28,13 +29,16 @@ from vtConstant import *
 from vtGateway import VtSubscribeReq, VtOrderReq, VtCancelOrderReq, VtLogData
 from vtFunction import todayDate
 
+import MySQLdb
 
 ########################################################################
 class CtaEngine(object):
     """CTA策略引擎"""
-    settingFileName = 'CTA_setting.json'
+    settingFileName = 'CTA_setting.json'  #by hw
     settingFileName = os.getcwd() + '/ctaAlgo/' + settingFileName
-
+    mysqlSetName = 'mysql_connect.json'
+    mysqlSetName = os.getcwd() + '/ctaAlgo/' + mysqlSetName
+    fpath =  os.getcwd() + '/ctaAlgo/vars/'
     #----------------------------------------------------------------------
     def __init__(self, mainEngine, eventEngine):
         """Constructor"""
@@ -43,6 +47,11 @@ class CtaEngine(object):
         
         # 当前日期
         self.today = todayDate()
+
+        #数据库类型mysql/mongodb by hw
+        self.dbtype='mongodb'
+        #mysql连接标志
+        self.__mysqlConnected =False
         
         # 保存策略实例的字典
         # key为策略名称，value为策略实例，注意策略名称不允许重复
@@ -69,10 +78,6 @@ class CtaEngine(object):
         # 持仓缓存字典
         # key为vtSymbol，value为PositionBuffer对象
         self.posBufferDict = {}
-        
-        # 引擎类型为实盘
-        self.engineType = ENGINETYPE_TRADING
-        
         # 注册事件监听
         self.registerEvent()
  
@@ -88,8 +93,7 @@ class CtaEngine(object):
         req.volume = volume
         
         req.productClass = strategy.productClass
-        req.currency = strategy.currency        
-        
+        req.currency = strategy.currency   
         # 设计为CTA引擎发出的委托只允许使用限价单
         req.priceType = PRICETYPE_LIMITPRICE    
         
@@ -97,7 +101,6 @@ class CtaEngine(object):
         if orderType == CTAORDER_BUY:
             req.direction = DIRECTION_LONG
             req.offset = OFFSET_OPEN
-            
         elif orderType == CTAORDER_SELL:
             req.direction = DIRECTION_SHORT
             
@@ -116,11 +119,9 @@ class CtaEngine(object):
                 # 其他情况使用平昨
                 else:
                     req.offset = OFFSET_CLOSE
-                
         elif orderType == CTAORDER_SHORT:
             req.direction = DIRECTION_SHORT
             req.offset = OFFSET_OPEN
-            
         elif orderType == CTAORDER_COVER:
             req.direction = DIRECTION_LONG
             
@@ -145,7 +146,9 @@ class CtaEngine(object):
 
         self.writeCtaLog(u'策略%s发送委托，%s，%s，%s@%s' 
                          %(strategy.name, vtSymbol, req.direction, volume, price))
-        
+
+
+ 
         return vtOrderID
     
     #----------------------------------------------------------------------
@@ -270,15 +273,17 @@ class CtaEngine(object):
     def processTradeEvent(self, event):
         """处理成交推送"""
         trade = event.dict_['data']
-        
+
         if trade.vtOrderID in self.orderStrategyDict:
             strategy = self.orderStrategyDict[trade.vtOrderID]
             
             # 计算策略持仓
+            if trade.vtSymbol not in strategy.pos.keys():  #by hw
+                    strategy.pos[trade.vtSymbol]=0
             if trade.direction == DIRECTION_LONG:
-                strategy.pos += trade.volume
+                strategy.pos[trade.vtSymbol] += trade.volume
             else:
-                strategy.pos -= trade.volume
+                strategy.pos[trade.vtSymbol] -= trade.volume
             
             strategy.onTrade(trade)
             
@@ -304,7 +309,7 @@ class CtaEngine(object):
                 posBuffer.vtSymbol = pos.vtSymbol
                 self.posBufferDict[pos.vtSymbol] = posBuffer
             posBuffer.updatePositionData(pos)
-    
+     
     #----------------------------------------------------------------------
     def registerEvent(self):
         """注册事件监听"""
@@ -312,7 +317,7 @@ class CtaEngine(object):
         self.eventEngine.register(EVENT_ORDER, self.processOrderEvent)
         self.eventEngine.register(EVENT_TRADE, self.processTradeEvent)
         self.eventEngine.register(EVENT_POSITION, self.processPositionEvent)
- 
+
     #----------------------------------------------------------------------
     def insertData(self, dbName, collectionName, data):
         """插入数据到数据库（这里的data可以是CtaTickData或者CtaBarData）"""
@@ -340,18 +345,109 @@ class CtaEngine(object):
         """从数据库中读取Tick数据，startDate是datetime对象"""
         startDate = self.today - timedelta(days)
         
-        d = {'datetime':{'$gte':startDate}}
-        cursor = self.mainEngine.dbQuery(dbName, collectionName, d)
-        
-        l = []
-        if cursor:
-            for d in cursor:
-                tick = CtaTickData()
-                tick.__dict__ = d
-                l.append(tick)
-        
+        l=[]
+        if self.dbtype =='mysql':
+
+            """从Mysql载入历史TICK数据,"""
+            #Todo :判断开始和结束时间，如果间隔天过长，数据量会过大，需要批次提取。
+            try:
+
+                self.connectMysql()
+
+                if self.__mysqlConnected:
+
+
+                    # 获取指针
+                    cur = self.__mysqlConnection.cursor(MySQLdb.cursors.DictCursor)
+
+                    # 开始日期 - 当前
+                    sqlstring = ' SELECT tick FROM tb_tick_2  where symbol=\'{0}\' and  ndate >= cast(\'{1}\' as date) order by id'.\
+                                   format( collectionName, startDate)
+
+                    print sqlstring
+                    # self.writeCtaLog(sqlstring)
+
+                    # 执行查询
+                    count = cur.execute(sqlstring)
+
+                    # 分批次读取
+                    fetch_counts = 0
+                    fetch_size = 10000
+
+                    while True:
+                        results = cur.fetchmany(fetch_size)
+
+                        if not results:
+                            break
+
+                        fetch_counts = fetch_counts + len(results)
+
+                        for d in results:
+                            tick = CtaTickData()
+                            tick.__dict__ = eval(d['tick'])
+                            #print d
+                            tick.datetime=datetime.strptime(tick.datetime,'%Y-%m-%d %H:%M:%S.%f')
+                            l.append(tick)
+
+                        #self.writeCtaLog(u'{1}~{2}历史TICK数据载入共{0}条'.format(fetch_counts,startDate,endDate))
+
+
+                else:
+                    self.writeCtaLog(u'MysqlDB未连接，请检查')
+
+            except MySQLdb.Error, e:
+
+                self.writeCtaLog(u'MysqlDB载入数据失败，请检查.Error {0}'.format(e))
+
+        elif self.dbtype =='mongodb' :
+            d = {'datetime':{'$gte':startDate}}
+            cursor = self.mainEngine.dbQuery(dbName, collectionName, d)
+
+            if cursor:
+                for d in cursor:
+                    tick = CtaTickData()
+                    tick.__dict__ = d
+                    l.append(tick)
+
         return l    
-    
+    #----------------------------------------------------------------------
+    def connectMysql(self):
+        """连接MysqlDB"""
+        if self.__mysqlConnected:
+            return
+        # 载入json文件
+        fileName = 'mysql_connect.json'
+        with open(self.mysqlSetName) as f:
+            #l = json.load(f)
+            '''try:
+                f = file(fileName)
+            except IOError:
+                self.writeCtaLog(u'读取Mysql_connect.json失败')
+                return
+            '''
+            # 解析json文件
+            setting = json.load(f)
+            print setting
+            try:
+                mysql_host = str(setting['host'])
+                mysql_port = int(setting['port'])
+                mysql_user = str(setting['user'])
+                mysql_passwd = str(setting['passwd'])
+                mysql_db = str(setting['db'])
+
+
+            except IOError:
+                self.writeCtaLog(u'读取Mysql_connect.json,连接配置缺少字段，请检查')
+                return
+
+            try:
+                self.__mysqlConnection = MySQLdb.connect(host=mysql_host, user=mysql_user,
+                                                         passwd=mysql_passwd, db=mysql_db, port=mysql_port)
+                self.__mysqlConnected = True
+                self.writeCtaLog(u'连接MysqlDB成功')
+            except :
+                self.writeCtaLog(u'连接MysqlDB失败')
+
     #----------------------------------------------------------------------
     def writeCtaLog(self, content):
         """快速发出CTA模块日志事件"""
@@ -386,27 +482,29 @@ class CtaEngine(object):
             self.strategyDict[name] = strategy
             
             # 保存Tick映射关系
-            if strategy.vtSymbol in self.tickStrategyDict:
-                l = self.tickStrategyDict[strategy.vtSymbol]
-            else:
-                l = []
-                self.tickStrategyDict[strategy.vtSymbol] = l
-            l.append(strategy)
+            vtSymbolset=setting['vtSymbol']
+            vtSymbolList=vtSymbolset.split(',')
+            for vtSymbol in vtSymbolList :  #by hw 单个策略订阅多个合约，配置文件中"vtSymbol": "IF1602,IF1603"
+                if vtSymbol in self.tickStrategyDict:
+                    l = self.tickStrategyDict[vtSymbol]
+                else:
+                    l = []
+                    self.tickStrategyDict[vtSymbol] = l
+                l.append(strategy)
             
-            # 订阅合约
-            contract = self.mainEngine.getContract(strategy.vtSymbol)
-            if contract:
-                req = VtSubscribeReq()
-                req.symbol = contract.symbol
-                req.exchange = contract.exchange
+                # 订阅合约
+                contract = self.mainEngine.getContract(vtSymbol)
+                if contract:
+                    req = VtSubscribeReq()
+                    req.symbol = contract.symbol
+                    req.exchange = contract.exchange
                 
-                # 对于IB接口订阅行情时所需的货币和产品类型，从策略属性中获取
-                req.currency = strategy.currency
-                req.productClass = strategy.productClass
-                
-                self.mainEngine.subscribe(req, contract.gatewayName)
-            else:
-                self.writeCtaLog(u'%s的交易合约%s无法找到' %(name, strategy.vtSymbol))
+                    # 对于IB接口订阅行情时所需的货币和产品类型，从策略属性中获取
+                    req.currency = strategy.currency
+                    req.productClass = strategy.productClass
+                    self.mainEngine.subscribe(req, contract.gatewayName)
+                else:
+                    self.writeCtaLog(u'%s的交易合约%s无法找到' %(name, vtSymbol))
 
     #----------------------------------------------------------------------
     def initStrategy(self, name):
@@ -518,6 +616,7 @@ class CtaEngine(object):
         
 
 
+
 ########################################################################
 class PositionBuffer(object):
     """持仓缓存信息（本地维护的持仓数据）"""
@@ -580,5 +679,3 @@ class PositionBuffer(object):
         
     
     
-
-
