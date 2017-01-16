@@ -6,6 +6,7 @@
 '''
 from __future__ import division
 
+import logging
 from datetime import datetime, timedelta
 from collections import OrderedDict
 from itertools import product
@@ -80,6 +81,22 @@ class BacktestingEngine(object):
         self.tick = None
         self.bar = None
         self.dt = None      # 最新的时间
+
+        #文件日志
+        ####### init log ################
+        logging.basicConfig(level=logging.DEBUG,
+                format='[%(asctime)s][%(filename)s][line:%(lineno)d][%(levelname)s] %(message)s',
+                datefmt='%a, %d %b %Y %H:%M:%S',
+                filename='backtest.log',
+                filemode='a')
+
+        #################################################################################################
+        #定义一个StreamHandler，将INFO级别或更高的日志信息打印到标准错误，并将其添加到当前的日志处理对象#
+        console = logging.StreamHandler()
+        console.setLevel(logging.DEBUG)
+        formatter = logging.Formatter('[%(asctime)s][%(filename)s][line:%(lineno)d][%(levelname)s] %(message)s')
+        console.setFormatter(formatter)
+        logging.getLogger('').addHandler(console)
         
     #----------------------------------------------------------------------
     def setStartDate(self, startDate='20100416', initDays=10):
@@ -444,6 +461,8 @@ class BacktestingEngine(object):
         """记录日志"""
         log = str(self.dt) + ' ' + content 
         self.logList.append(log)
+
+        logging.info("content=%s", content)
         
     #----------------------------------------------------------------------
     def output(self, content):
@@ -849,6 +868,6 @@ if __name__ == '__main__':
     # 显示回测结果
     # spyder或者ipython notebook中运行时，会弹出盈亏曲线图
     # 直接在cmd中回测则只会打印一些回测数值
-    engine.showBacktestingResult()
+    #engine.showBacktestingResult()
     
     

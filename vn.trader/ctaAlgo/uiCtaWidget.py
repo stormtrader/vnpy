@@ -250,7 +250,7 @@ class CtaEngineManager(QtGui.QWidget):
         """更新CTA相关日志"""
         log = event.dict_['data']
         content = '\t'.join([log.logTime, log.logContent])
-        self.ctaLogMonitor.append(content)
+        self.ctaLogMonitor.append(content)`
     
     #----------------------------------------------------------------------
     def registerEvent(self):

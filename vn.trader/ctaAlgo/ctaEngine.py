@@ -393,7 +393,7 @@ class CtaEngine(object):
                 self.tickStrategyDict[strategy.vtSymbol] = l
             l.append(strategy)
             
-            # 订阅合约
+                # 订阅合约
             contract = self.mainEngine.getContract(strategy.vtSymbol)
             if contract:
                 req = VtSubscribeReq()

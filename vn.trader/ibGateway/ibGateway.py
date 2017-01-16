@@ -112,7 +112,7 @@ class IbGateway(VtGateway):
     """IB接口"""
 
     #----------------------------------------------------------------------
-    def __init__(self, eventEngine, gatewayName='IB'):
+    def __init__(self, Engine, gatewayName='IB'):
         """Constructor"""
         super(IbGateway, self).__init__(eventEngine, gatewayName)
         

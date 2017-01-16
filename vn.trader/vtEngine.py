@@ -167,7 +167,7 @@ class MainEngine(object):
         else:
             self.writeLog(u'接口不存在：%s' %gatewayName)        
         
-    #----------------------------------------------------------------------
+    #----------------   ------------------------------------------------------
     def qryAccont(self, gatewayName):
         """查询特定接口的账户"""
         if gatewayName in self.gatewayDict:
